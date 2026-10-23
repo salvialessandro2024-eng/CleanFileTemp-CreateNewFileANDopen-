@@ -3,12 +3,13 @@
 #include <cstdlib>
 #include <iomanip>
 #include <fstream>
+#include <ctime> // Per la gestione di data e ora
 
 namespace fs = std::filesystem;
 using namespace std;
 
 // ==========================================
-// 1. ANALIZZA LA CARTELLA TEMP DI WINDOWS
+// 1. ANALIZZA LA TEMP E LO SPAZIO DISCO
 // ==========================================
 void analizzaTemp(const string& percorso) {
     int fileTrovati = 0;
@@ -17,6 +18,11 @@ void analizzaTemp(const string& percorso) {
     cout << "\nAnalisi in corso..." << endl;
 
     try {
+        // Informazioni sullo spazio del disco fisso
+        fs::space_info si = fs::space(percorso);
+        double spazioTotaleGB = static_cast<double>(si.capacity) / (1024.0 * 1024.0 * 1024.0);
+        double spazioLiberoGB = static_cast<double>(si.free) / (1024.0 * 1024.0 * 1024.0);
+
         for (const auto& entry : fs::directory_iterator(percorso, fs::directory_options::skip_permission_denied)) {
             if (fs::is_regular_file(entry.path())) {
                 fileTrovati++;
@@ -31,10 +37,13 @@ void analizzaTemp(const string& percorso) {
         double spazioMB = static_cast<double>(spazioTotaleBytes) / (1024.0 * 1024.0);
 
         cout << "\n=================================" << endl;
-        cout << "       RISULTATO ANALISI         " << endl;
+        cout << "       STATISTICHE DISCO & TEMP  " << endl;
         cout << "=================================" << endl;
+        cout << "Spazio Totale Disco: " << fixed << setprecision(2) << spazioTotaleGB << " GB" << endl;
+        cout << "Spazio Libero Disco: " << fixed << setprecision(2) << spazioLiberoGB << " GB" << endl;
+        cout << "---------------------------------" << endl;
         cout << "File temporanei trovati: " << fileTrovati << endl;
-        cout << "Spazio occupato stimato: " << fixed << setprecision(2) << spazioMB << " MB" << endl;
+        cout << "Spazio occupato da Temp: " << fixed << setprecision(2) << spazioMB << " MB" << endl;
         cout << "---------------------------------" << endl;
 
     } catch (const fs::filesystem_error& e) {
@@ -43,7 +52,7 @@ void analizzaTemp(const string& percorso) {
 }
 
 // ==========================================
-// 2. SPOSTA I FILE TEMP NEL CESTINO SICURO
+// 2. SPOSTA TEMP NEL CESTINO + LOG DATA/ORA
 // ==========================================
 void spostaNelCestino(const string& percorsoTemp, const string& percorsoCestino) {
     int fileSpostati = 0;
@@ -84,6 +93,25 @@ void spostaNelCestino(const string& percorsoTemp, const string& percorsoCestino)
         cout << "File spostati nel Cestino: " << fileSpostati << endl;
         cout << "Spazio liberato dalla Temp: " << fixed << setprecision(2) << spazioMB << " MB" << endl;
         cout << "---------------------------------" << endl;
+
+        // Richiesta salvataggio log data e ora su fileTempData.txt
+        char rispostaLog;
+        cout << "Vuoi salvare sul file fileTempData.txt la data e l'ora dell'ultima pulizia? (s/n): ";
+        cin >> rispostaLog;
+        if (rispostaLog == 's' || rispostaLog == 'S') {
+            time_t oraCorrente = time(nullptr);
+            char buffer[80];
+            strftime(buffer, sizeof(buffer), "%d-%m-%Y %H:%M:%S", localtime(&oraCorrente));
+
+            ofstream logFile("fileTempData.txt", ios::app); // Apre in modalità append
+            if (logFile.is_open()) {
+                logFile << "Pulizia eseguita il: " << buffer << " - Spazio liberato: " << fixed << setprecision(2) << spazioMB << " MB" << endl;
+                logFile.close();
+                cout << "-> Dati salvati con successo su fileTempData.txt!" << endl;
+            } else {
+                cout << "[ERRORE] Impossibile aprire il file di log." << endl;
+            }
+        }
 
     } catch (const fs::filesystem_error& e) {
         cout << "[ERRORE DI SISTEMA] " << e.what() << endl;
@@ -158,7 +186,7 @@ void gestisciCestino(const string& percorsoCestino) {
 }
 
 // ==========================================
-// 4. GESTORE CARTELLA PERSONALIZZATA
+// 4. GESTORE CARTELLA + RICERCA RAPIDA FILE
 // ==========================================
 void gestisciCartellaPersonalizzata() {
     string percorso;
@@ -193,7 +221,8 @@ void gestisciCartellaPersonalizzata() {
         cout << "2. Aggiungi un nuovo file" << endl;
         cout << "3. Elimina un file" << endl;
         cout << "4. Rinomina un file" << endl;
-        cout << "5. Torna al menu principale" << endl;
+        cout << "5. Cerca un file nella cartella" << endl;
+        cout << "6. Torna al menu principale" << endl;
         cout << "Scegli un'opzione: ";
 
         if (!(cin >> subScelta)) {
@@ -269,48 +298,74 @@ void gestisciCartellaPersonalizzata() {
                 }
                 break;
             }
-            case 5:
+            case 5: {
+                string chiave;
+                cout << "Inserisci il nome o l'estensione da cercare (es. .txt o report): ";
+                cin >> chiave;
+                cout << "\n--- RISULTati RICERCA ---" << endl;
+                int trovati = 0;
+                for (const auto& entry : fs::directory_iterator(percorso)) {
+                    if (fs::is_regular_file(entry.path())) {
+                        string nomeFile = entry.path().filename().string();
+                        // Controlla se la parola chiave è contenuta nel nome del file
+                        if (nomeFile.find(chiave) != string::npos) {
+                            cout << "Trovato: " << nomeFile << endl;
+                            trovati++;
+                        }
+                    }
+                }
+                cout << "Totale file corrispondenti trovati: " << trovati << endl;
+                break;
+            }
+            case 6:
                 cout << "Ritorno al menu principale..." << endl;
                 break;
             default:
                 cout << "Scelta non valida." << endl;
         }
 
-    } while (subScelta != 5);
+    } while (subScelta != 6);
 }
 
 // ==========================================
-// 5. CONTROLLO ERRORI SISTEMA (SFC /SCANNOW)
+// 5. CONTROLLO ERRORI SISTEMA (SFC)
 // ==========================================
 void eseguiSfcScannow() {
     cout << "\n=================================" << endl;
     cout << "   CONTROLLO INTEGRITA' SISTEMA  " << endl;
     cout << "=================================" << endl;
-    cout << "NOTA: Questo comando (sfc /scannow) esamina" << endl;
-    cout << "i file di sistema di Windows e richiede" << endl;
-    cout << "i privilegi di AMMINISTRATORE per ripararli." << endl;
-    cout << "Vuoi avviare la scansione ora? (s/n): ";
+    cout << "NOTA: Richiede privilegi di AMMINISTRATORE." << endl;
+    cout << "Vuoi avviare la scansione sfc /scannow ora? (s/n): ";
     
     char conferma;
     cin >> conferma;
     if (conferma == 's' || conferma == 'S') {
-        cout << "\nAvvio della scansione SFC in corso..." << endl;
-        cout << "Si aprira' la finestra di Windows dedicata. Attendere prego...\n" << endl;
-        
-        // Esegue il comando di sistema nativo di Windows
-        int risultato = system("sfc /scannow");
-        
-        cout << "\n---------------------------------" << endl;
-        if (risultato == 0) {
-            cout << "-> Scansione e controllo completati!" << endl;
-        } else {
-            cout << "[AVVISO] Se il comando non e' andato a buon fine, prova ad" << endl;
-            cout << "avviare Dev-C++ o il programma eseguibile cliccando con" << endl;
-            cout << "il tasto destro e scegliendo 'Esegui come amministratore'." << endl;
-        }
-        cout << "---------------------------------" << endl;
+        cout << "\nAvvio della scansione SFC in corso... Attendere...\n" << endl;
+        system("sfc /scannow");
+        cout << "\n-> Scansione completata!" << endl;
     } else {
         cout << "Scansione annullata." << endl;
+    }
+}
+
+// ==========================================
+// 6. RIPARAZIONE IMMAGINE DISM
+// ==========================================
+void eseguiDism() {
+    cout << "\n=================================" << endl;
+    cout << "   RIPARAZIONE IMMAGINE DISM     " << endl;
+    cout << "=================================" << endl;
+    cout << "NOTA: Richiede privilegi di AMMINISTRATORE." << endl;
+    cout << "Vuoi avviare la riparazione DISM ora? (s/n): ";
+    
+    char conferma;
+    cin >> conferma;
+    if (conferma == 's' || conferma == 'S') {
+        cout << "\nAvvio della riparazione DISM in corso... Attendere...\n" << endl;
+        system("dism /Online /Cleanup-Image /RestoreHealth");
+        cout << "\n-> Riparazione immagine completata!" << endl;
+    } else {
+        cout << "Riparazione annullata." << endl;
     }
 }
 
@@ -332,16 +387,17 @@ int main() {
         cout << "\n=================================" << endl;
         cout << "   MINI-CLEANER & FILE MANAGER   " << endl;
         cout << "=================================" << endl;
-        cout << "1. Analizza cartella Temp Windows" << endl;
-        cout << "2. Sposta file Temp nel Cestino di sicurezza" << endl;
+        cout << "1. Analizza Temp Windows e Spazio Disco" << endl;
+        cout << "2. Sposta file Temp nel Cestino (+ Log data/ora)" << endl;
         cout << "3. Gestisci Cestino (Visualizza / Svuota)" << endl;
-        cout << "4. Apri e gestisci una tua cartella personalizzata" << endl;
+        cout << "4. Apri e gestisci cartella personalizzata" << endl;
         cout << "5. Controllo errori sistema (sfc /scannow)" << endl;
-        cout << "6. Esci" << endl;
+        cout << "6. Riparazione immagine Windows (DISM)" << endl;
+        cout << "7. Esci" << endl;
         cout << "Scegli un'opzione: ";
 
         if (!(cin >> scelta)) {
-            cout << "\n[ERRORE] Inserisci un numero valido da 1 a 6!" << endl;
+            cout << "\n[ERRORE] Inserisci un numero valido da 1 a 7!" << endl;
             cin.clear();
             cin.ignore(10000, '\n');
             scelta = 0;
@@ -373,13 +429,16 @@ int main() {
                 eseguiSfcScannow();
                 break;
             case 6:
+                eseguiDism();
+                break;
+            case 7:
                 cout << "Uscita dal programma. A presto!" << endl;
                 break;
             default:
-                cout << "Scelta non valida! Inserisci un numero tra 1 e 6." << endl;
+                cout << "Scelta non valida! Inserisci un numero tra 1 e 7." << endl;
         }
 
-    } while (scelta != 6);
+    } while (scelta != 7);
 
     return 0;
 }
